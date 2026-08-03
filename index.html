@@ -262,16 +262,10 @@
     // ================== КОНФИГУРАЦИЯ ==================
     const WORKER_URL = "https://7channel-poll.alievmarat181.workers.dev";
 
-    // ВРЕМЕННО: режим теста ГТС. Убирает на странице Turnstile и запрет
-    // повторного голоса. Worker всё равно принимает голос без защит только
-    // от IP из WHITELIST_IPS. После теста поставить false.
-    const GTS_TEST_MODE = true;
-
-    // Cloudflare Turnstile — защита от ботов. Site Key (публичный, не секрет).
-    // Сейчас стоит ТЕСТОВЫЙ ключ Cloudflare (всегда «человек») — для проверки.
-    // Перед эфиром заменить на реальный из дашборда Cloudflare → Turnstile.
-    // Пустая строка "" полностью выключает проверку на фронте.
-    const TURNSTILE_SITEKEY = GTS_TEST_MODE ? "" : "0x4AAAAAAEA2XO4FxIw3RwSS";
+    // Cloudflare Turnstile — защита от ботов. Site Key (публичный, не секрет),
+    // боевой виджет (домены opros.kipd.kz / oproskipdkz.netlify.app / survey.kipd.kz).
+    // Пустая строка "" полностью выключает проверку на фронте — в бою НЕ пусто.
+    const TURNSTILE_SITEKEY = "0x4AAAAAAEA2XO4FxIw3RwSS";
 
     // Порядок строго по бюллетеню ЦИК (жеребьёвка на выборы 23.08.2026).
     // Менять только вместе с worker.js. Служебный экран сортирует по голосам,
@@ -347,7 +341,7 @@
     let refreshTimer = null;
     let lastData = null;
 
-    const hasVoted = () => !GTS_TEST_MODE && localStorage.getItem("voted") === "true";
+    const hasVoted = () => localStorage.getItem("voted") === "true";
     function detectLang() {
       const saved = localStorage.getItem("lang");
       if (saved === "ru" || saved === "kz") return saved;   // ручной выбор имеет приоритет
@@ -520,13 +514,9 @@
         try {
           // Токен одноразовый и живёт ~5 мин — для досылки берём свежий.
           const token = await getToken();
-          if (!token && !GTS_TEST_MODE) throw new Error("no_token");
+          if (!token) throw new Error("no_token");
           const data = await sendVote(party, token);
           localStorage.removeItem(PENDING_KEY);
-          if (data.skipLocalVoteLock) {
-            localStorage.removeItem("voted");
-            localStorage.removeItem("votedParty");
-          }
           resetToken();
         } catch (err) {
           retryPending(attempt + 1);
@@ -541,26 +531,16 @@
       el.submitBtn.disabled = true;
       el.submitBtn.innerHTML = `<span class="spinner"></span>${t.sending}`;
 
-      // Обычный зритель получает токен Turnstile. Если он не выдан, запрос всё
-      // равно отправляется: сервер пропустит его только для IP из WHITELIST_IPS.
+      // Зритель получает токен Turnstile. Нет валидного токена — сервер отклонит
+      // голос (403 failed_captcha), и досылка возьмёт свежий токен.
       const token = await getToken();
 
       try {
         const data = await sendVote(party, token);
-        if (!GTS_TEST_MODE && !data.skipLocalVoteLock) markVoted(party);
+        markVoted(party);
         showToast(t.thanks);
         showThanks();
       } catch (err) {
-        // В нагрузочном режиме нельзя показывать «Спасибо» до записи в Redis:
-        // иначе тест посчитает несуществующий голос успешным. Ошибку отдаём
-        // сразу и разрешаем повторить запрос.
-        if (GTS_TEST_MODE) {
-          showToast(t.errNet);
-          el.submitBtn.disabled = false;
-          el.submitBtn.textContent = t.submit;
-          resetToken();
-          return;
-        }
         // Жёсткий географический отказ: голос из-за пределов Казахстана не
         // принимается и досылкой не спасётся. Не помечаем как проголосовавшего,
         // не ставим в очередь, не показываем «Спасибо» — только понятную ошибку.
@@ -574,7 +554,7 @@
         // Прочие сбои (сеть, временный 5xx): голос не потерян — лежит в
         // localStorage и уйдёт при первой же успешной попытке (с новым токеном).
         // Экран обычный, без ошибки.
-        if (!GTS_TEST_MODE) markVoted(party);
+        markVoted(party);
         localStorage.setItem(PENDING_KEY, party);
         showThanks();
         retryPending();
