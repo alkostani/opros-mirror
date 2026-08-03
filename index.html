@@ -484,7 +484,8 @@
         body: JSON.stringify({ party, token })
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) throw new Error(data.error || "fail");
+      // Успех показываем только после подтверждения Worker, что Redis записал голос.
+      if (!res.ok || !data.ok || data.recorded !== true) throw new Error(data.error || "not_recorded");
       return data;
     }
 
@@ -550,6 +551,16 @@
         showToast(t.thanks);
         showThanks();
       } catch (err) {
+        // В нагрузочном режиме нельзя показывать «Спасибо» до записи в Redis:
+        // иначе тест посчитает несуществующий голос успешным. Ошибку отдаём
+        // сразу и разрешаем повторить запрос.
+        if (GTS_TEST_MODE) {
+          showToast(t.errNet);
+          el.submitBtn.disabled = false;
+          el.submitBtn.textContent = t.submit;
+          resetToken();
+          return;
+        }
         // Жёсткий географический отказ: голос из-за пределов Казахстана не
         // принимается и досылкой не спасётся. Не помечаем как проголосовавшего,
         // не ставим в очередь, не показываем «Спасибо» — только понятную ошибку.
