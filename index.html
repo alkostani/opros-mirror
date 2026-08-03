@@ -262,11 +262,16 @@
     // ================== КОНФИГУРАЦИЯ ==================
     const WORKER_URL = "https://7channel-poll.alievmarat181.workers.dev";
 
+    // ВРЕМЕННО: режим теста ГТС. Убирает на странице Turnstile и запрет
+    // повторного голоса. Worker всё равно принимает голос без защит только
+    // от IP из WHITELIST_IPS. После теста поставить false.
+    const GTS_TEST_MODE = true;
+
     // Cloudflare Turnstile — защита от ботов. Site Key (публичный, не секрет).
     // Сейчас стоит ТЕСТОВЫЙ ключ Cloudflare (всегда «человек») — для проверки.
     // Перед эфиром заменить на реальный из дашборда Cloudflare → Turnstile.
     // Пустая строка "" полностью выключает проверку на фронте.
-    const TURNSTILE_SITEKEY = "0x4AAAAAAEA2XO4FxIw3RwSS";
+    const TURNSTILE_SITEKEY = GTS_TEST_MODE ? "" : "0x4AAAAAAEA2XO4FxIw3RwSS";
 
     // Порядок строго по бюллетеню ЦИК (жеребьёвка на выборы 23.08.2026).
     // Менять только вместе с worker.js. Служебный экран сортирует по голосам,
@@ -342,7 +347,7 @@
     let refreshTimer = null;
     let lastData = null;
 
-    const hasVoted = () => localStorage.getItem("voted") === "true";
+    const hasVoted = () => !GTS_TEST_MODE && localStorage.getItem("voted") === "true";
     function detectLang() {
       const saved = localStorage.getItem("lang");
       if (saved === "ru" || saved === "kz") return saved;   // ручной выбор имеет приоритет
@@ -514,7 +519,7 @@
         try {
           // Токен одноразовый и живёт ~5 мин — для досылки берём свежий.
           const token = await getToken();
-          if (!token) throw new Error("no_token");
+          if (!token && !GTS_TEST_MODE) throw new Error("no_token");
           const data = await sendVote(party, token);
           localStorage.removeItem(PENDING_KEY);
           if (data.skipLocalVoteLock) {
@@ -541,7 +546,7 @@
 
       try {
         const data = await sendVote(party, token);
-        if (!data.skipLocalVoteLock) markVoted(party);
+        if (!GTS_TEST_MODE && !data.skipLocalVoteLock) markVoted(party);
         showToast(t.thanks);
         showThanks();
       } catch (err) {
@@ -558,7 +563,7 @@
         // Прочие сбои (сеть, временный 5xx): голос не потерян — лежит в
         // localStorage и уйдёт при первой же успешной попытке (с новым токеном).
         // Экран обычный, без ошибки.
-        markVoted(party);
+        if (!GTS_TEST_MODE) markVoted(party);
         localStorage.setItem(PENDING_KEY, party);
         showThanks();
         retryPending();
