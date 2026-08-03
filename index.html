@@ -480,6 +480,7 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) throw new Error(data.error || "fail");
+      return data;
     }
 
     function markVoted(party) {
@@ -514,8 +515,12 @@
           // Токен одноразовый и живёт ~5 мин — для досылки берём свежий.
           const token = await getToken();
           if (!token) throw new Error("no_token");
-          await sendVote(party, token);
+          const data = await sendVote(party, token);
           localStorage.removeItem(PENDING_KEY);
+          if (data.skipLocalVoteLock) {
+            localStorage.removeItem("voted");
+            localStorage.removeItem("votedParty");
+          }
           resetToken();
         } catch (err) {
           retryPending(attempt + 1);
@@ -530,28 +535,21 @@
       el.submitBtn.disabled = true;
       el.submitBtn.innerHTML = `<span class="spinner"></span>${t.sending}`;
 
-      // Строгий режим: нет валидного токена Turnstile — голос не отправляем.
-      // Это защита от ботов; живой зритель проходит проверку невидимо.
+      // Обычный зритель получает токен Turnstile. Если он не выдан, запрос всё
+      // равно отправляется: сервер пропустит его только для IP из WHITELIST_IPS.
       const token = await getToken();
-      if (!token) {
-        showToast(t.errCaptcha);
-        resetToken();
-        el.submitBtn.disabled = false;
-        el.submitBtn.textContent = t.submit;
-        return;
-      }
 
       try {
-        await sendVote(party, token);
-        markVoted(party);
+        const data = await sendVote(party, token);
+        if (!data.skipLocalVoteLock) markVoted(party);
         showToast(t.thanks);
         showThanks();
       } catch (err) {
         // Жёсткий географический отказ: голос из-за пределов Казахстана не
         // принимается и досылкой не спасётся. Не помечаем как проголосовавшего,
         // не ставим в очередь, не показываем «Спасибо» — только понятную ошибку.
-        if (err && err.message === "country_not_allowed") {
-          showToast(t.errCountry);
+        if (err && (err.message === "country_not_allowed" || err.message === "failed_captcha")) {
+          showToast(err.message === "country_not_allowed" ? t.errCountry : t.errCaptcha);
           el.submitBtn.disabled = false;
           el.submitBtn.textContent = t.submit;
           resetToken();
