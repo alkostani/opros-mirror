@@ -641,7 +641,7 @@
         const name = document.createElement("span"); name.className = "bar-name";
         name.textContent = labelOf(p) + (p.id === votedParty ? " ✓" : "");
         const stat = document.createElement("span"); stat.className = "bar-stat";
-        stat.innerHTML = `${pct.toFixed(1)}% <span class="count">(${cnt})</span>`;
+        stat.innerHTML = `${pct.toFixed(2)}% <span class="count">(${cnt})</span>`;
         lab.appendChild(name); lab.appendChild(stat);
         const track = document.createElement("div"); track.className = "bar-track";
         const fill = document.createElement("div"); fill.className = "bar-fill";
